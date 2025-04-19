@@ -294,7 +294,23 @@ static dispatch_queue_t ytkrequest_cache_writing_queue() {
     NSFileManager * fileManager = [NSFileManager defaultManager];
     if ([fileManager fileExistsAtPath:path isDirectory:nil]) {
         @try {
-            _cacheMetadata = [NSKeyedUnarchiver unarchiveObjectWithFile:path];
+            NSData *data = [NSData dataWithContentsOfFile:path];
+            if (@available(iOS 11.0, *)) {
+                NSSet* allowedClasses = [NSSet setWithArray:@[
+                    [NSString class],
+                    [NSNumber class],
+                    [NSDate class],
+                    [YTKCacheMetadata class],
+                ]];
+                NSError* error = nil;
+                _cacheMetadata = [NSKeyedUnarchiver unarchivedObjectOfClasses:allowedClasses fromData:data error:&error];
+                if (error) {
+                    YTKLog(@"Load cache metadata failed, reason = %@", error);
+                    return NO;
+                }
+                return YES;
+            }
+            _cacheMetadata = [NSKeyedUnarchiver unarchiveObjectWithData:data];
             return YES;
         } @catch (NSException *exception) {
             YTKLog(@"Load cache metadata failed, reason = %@", exception.reason);
@@ -341,7 +357,22 @@ static dispatch_queue_t ytkrequest_cache_writing_queue() {
                 metadata.stringEncoding = [YTKNetworkUtils stringEncodingWithRequest:self];
                 metadata.creationDate = [NSDate date];
                 metadata.appVersionString = [YTKNetworkUtils appVersionString];
-                [NSKeyedArchiver archiveRootObject:metadata toFile:[self cacheMetadataFilePath]];
+                if (@available(iOS 11.0, *)) {
+                    NSError* error = nil;
+                    NSData* archivedData = [NSKeyedArchiver archivedDataWithRootObject:metadata requiringSecureCoding:YES error:&error];
+                    if (error) {
+                        YTKLog(@"Save cache failed, reason = %@", error);
+                        return;
+                    }
+                    [archivedData writeToFile:[self cacheMetadataFilePath] atomically:YES];
+                    return;
+                }
+                NSData *archivedData = [NSKeyedArchiver archivedDataWithRootObject:metadata];
+                if (archivedData == nil) {
+                    YTKLog(@"Save cache failed, reason = %@", @"archivedData is nil");
+                    return;
+                }
+                [archivedData writeToFile:[self cacheMetadataFilePath] atomically:YES];
             } @catch (NSException *exception) {
                 YTKLog(@"Save cache failed, reason = %@", exception.reason);
             }
